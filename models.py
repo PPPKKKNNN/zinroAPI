@@ -3,16 +3,46 @@ from typing import List, Optional
 from datetime import datetime
 
 
-class Room(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
+class RoomBase(SQLModel):
     name: str
-    users: List["User"] = Relationship(back_populates="room")
 
 
-class User(SQLModel, table=True):
+class Room(RoomBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    username: str
-    room_id: int | None = Field(default=None, foreign_key="room.id")
+    users: List["User"] | None = Relationship(back_populates="room")
+
+
+class RoomPublic(RoomBase):
+    id: int
+
+
+class RoomCreate(RoomBase):
+    pass
+
+
+class RoomUpdate(SQLModel):
+    name: int | None = None
+
+
+class UserBase(SQLModel):
+    name: str
+
+
+class User(UserBase, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    room: Room | None = Relationship(back_populates="users")
+
+
+class UsePublic(UserBase):
+    id: int
+
+
+class UserCreate(UserBase):
+    pass
+
+
+class UseUpdate(SQLModel):
+    name: int | None = None
     room: Room | None = Relationship(back_populates="users")
 
 
@@ -21,4 +51,4 @@ class Message(SQLModel, table=True):
     room_id: int
     user_id: int
     content: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=datetime.now)
