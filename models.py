@@ -31,10 +31,12 @@ class UserBase(SQLModel):
 class User(UserBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     room: Room | None = Relationship(back_populates="users")
+    room_id: int | None = Field(default=None, foreign_key="room.id")
 
 
-class UsePublic(UserBase):
+class UserPublic(UserBase):
     id: int
+    room_id: int | None
 
 
 class UserCreate(UserBase):
