@@ -1,11 +1,21 @@
+import logging
+
+
+def pytest_configure(config):
+    logging.basicConfig(level=logging.INFO)
+
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 from sqlmodel.pool import StaticPool
 
-from main import app, get_session
+from main import app, get_session, update_by_time
 from models import User, Room, UserStateEnum, RoomStateEnum
 from uuid import uuid4
+
+from freezegun import freeze_time
+import datetime
 
 # TODO 部屋主以外が部屋を消したりゲームを終了したりできないようにする。
 
@@ -33,6 +43,9 @@ def client_fixture(session: Session):
     client = TestClient(app)
     yield client
     app.dependency_overrides.clear()
+
+
+app.dependency_overrides[get_session] = session_fixture
 
 
 def test_create_user(client: TestClient):
@@ -272,12 +285,10 @@ def test_enter_room(session: Session, client: TestClient):
     user_1 = User(name="Tommy", alias="Rustyman")
     session.add(user_1)
     session.commit()
-
     params = {"room_id": room_1.id}
     client.cookies.set("session_token", user_1.session_token)
     response = client.post(f"/rooms/entrance/", params=params)
     data = response.json()
-    print(data)
     assert response.status_code == 200
     assert data["name"] == room_1.name
     assert data["state"] == room_1.state
@@ -455,7 +466,6 @@ def test_game_end_invalid(session: Session, client: TestClient):
     assert response.status_code == 412
 
 
-# TODO room_close()のテスト
 def test_room_close(session: Session, client: TestClient):
     room_1 = Room(name="room_1", state=str(RoomStateEnum.AFTERGAME.value))
     session.add(room_1)
@@ -494,6 +504,17 @@ def test_room_close(session: Session, client: TestClient):
     assert user_1.room_id == None
     assert user_2.room_id == None
     assert user_3.room_id == None
+
+
+# TODO AppMiddlewareのテスト
+@freeze_time("2023-04-01")
+def test_time_forward(session: Session, client: TestClient):
+    room_1 = Room(name="room_1")
+    session.add(room_1)
+    session.commit
+    with freeze_time(datetime.datetime.now() + datetime.timedelta(minutes=31)):
+        client.get("/rooms/")
+        assert room_1.state == str(RoomStateEnum.CLOSED.value)
 
 
 # TODO read_messages()のテスト

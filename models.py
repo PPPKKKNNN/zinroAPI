@@ -1,5 +1,5 @@
 from sqlmodel import SQLModel, Field, Relationship, text
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime, timedelta
 from uuid import uuid4
 from enum import Enum
@@ -18,25 +18,16 @@ class RoomStateEnum(Enum):
     CLOSED = "Closed"
 
 
-ROOMSTATECYCLE = {
-    RoomStateEnum.BEFOREGAME: {"next": RoomStateEnum.CLOSED, "prev": None},
-    RoomStateEnum.FIRSTNIGHT: {
-        "next": RoomStateEnum.SECONDMORNING,
-        "prev": RoomStateEnum.BEFOREGAME,
-    },
-    RoomStateEnum.SECONDMORNING: {
-        "next": RoomStateEnum.DAYTIME,
-        "prev": RoomStateEnum.FIRSTNIGHT,
-    },
-    RoomStateEnum.DAYTIME: {
-        "next": RoomStateEnum.SUNSET,
-        "prev": RoomStateEnum.SECONDMORNING,
-    },
-    RoomStateEnum.SUNSET: {"next": RoomStateEnum.NIGHT, "prev": RoomStateEnum.DAYTIME},
-    RoomStateEnum.NIGHT: {"next": RoomStateEnum.MORNING, "prev": RoomStateEnum.SUNSET},
-    RoomStateEnum.MORNING: {"next": RoomStateEnum.DAYTIME, "prev": RoomStateEnum.NIGHT},
-    RoomStateEnum.AFTERGAME: {"next": RoomStateEnum.CLOSED, "prev": None},
-    RoomStateEnum.CLOSED: {"next": None, "prev": None},
+ROOMSTATECYCLE: Dict[str, Dict["next":str, "prev":str]] = {
+    RoomStateEnum.BEFOREGAME.value: RoomStateEnum.CLOSED.value,
+    RoomStateEnum.FIRSTNIGHT.value: RoomStateEnum.SECONDMORNING.value,
+    RoomStateEnum.SECONDMORNING.value: RoomStateEnum.DAYTIME.value,
+    RoomStateEnum.DAYTIME.value: RoomStateEnum.SUNSET.value,
+    RoomStateEnum.SUNSET.value: RoomStateEnum.NIGHT.value,
+    RoomStateEnum.NIGHT.value: RoomStateEnum.MORNING.value,
+    RoomStateEnum.MORNING.value: RoomStateEnum.DAYTIME.value,
+    RoomStateEnum.AFTERGAME.value: RoomStateEnum.CLOSED.value,
+    RoomStateEnum.CLOSED.value: None,
 }
 
 
@@ -51,11 +42,13 @@ class Room(RoomBase, table=True):
         default=str(RoomStateEnum.BEFOREGAME.value), nullable=False
     )
     detail_of_role: str | None = None
-    created_at: datetime | None = Field(default_factory=datetime.now, nullable=False)
+    created_at: datetime | None = Field(
+        default_factory=lambda: datetime.now(), nullable=False
+    )
     updated_at: datetime | None = Field(
-        default_factory=datetime.now,
+        default_factory=lambda: datetime.now(),
         nullable=False,
-        sa_column_kwargs={"onupdate": datetime.now},
+        sa_column_kwargs={"onupdate": lambda: datetime.now()},
     )
     next_state_update_at: datetime | None = Field(
         default_factory=lambda: datetime.now() + timedelta(minutes=30), nullable=False
@@ -151,7 +144,7 @@ class Message(MessageBase, table=True):
     user: User = Relationship(back_populates="messages")
     target_user: str | None = None
     target_group: str | None = None
-    created_at: datetime = Field(default_factory=datetime.now, nullable=False)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(), nullable=False)
 
 
 class MessagePublic(MessageBase):

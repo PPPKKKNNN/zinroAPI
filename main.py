@@ -1,3 +1,10 @@
+import logging
+
+
+def pytest_configure(config):
+    logging.basicConfig(level=logging.INFO)
+
+
 from fastapi import (
     Depends,
     FastAPI,
@@ -19,33 +26,38 @@ from models import (
     RoomPublic,
     RoomCreate,
     Room,
+    RoomUpdate,
     RoomStateEnum,
+    ROOMSTATECYCLE,
     Message,
     MessageCreate,
     MessagePublic,
-    RoomUpdate,
 )
-from datetime import datetime
+from datetime import datetime, timedelta
 from starlette.middleware.base import BaseHTTPMiddleware
+from typing import List
+
+
+# 時間経過による更新処理をここで行う
+def update_by_time(session: Session):
+    rooms: List[Room] = session.exec(select(Room)).all()
+
+    for room in rooms:
+        if room.next_state_update_at <= datetime.now():
+            room.state = str(ROOMSTATECYCLE[room.state])
+            room.next_state_update_at += timedelta(minutes=5)
+            session.add(room)
+    session.commit()
+    return session
 
 
 def get_session():
     with Session(engine) as session:
+        update_by_time(session=session)
         yield session
 
 
-# ここに部屋と役職実行と参加者の状態の定期更新の処理を記述する
-class AppMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        session_token = request.cookies.get("session_token")
-        # if not session_token and not (
-        #     request.method == "POST" and request.url.path == "/users/"
-        # ):
-        #     raise HTTPException(
-        #         status_code=status.HTTP_403_FORBIDDEN,
-        #         detail="You have not created an user yet.",
-        #     )
-        return await call_next(request)
+app = FastAPI()
 
 
 def get_user(
@@ -66,8 +78,10 @@ def get_user(
     return user
 
 
-app = FastAPI()
-app.add_middleware(AppMiddleware)
+@app.get("/time/")
+def read_time(*, session: Session = Depends(get_session)):
+    update_by_time(session=session)
+    return {"time": str(datetime.now())}
 
 
 @app.post("/users/", response_model=UserPublicWithName)
@@ -78,6 +92,7 @@ def create_user(
     user: UserCreate,
     session_token: str | None = Cookie(None),
 ):
+    update_by_time(session=session)
     if session_token is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -101,6 +116,7 @@ def read_users(
     limit: int = Query(default=100, le=100),
     session_token: str = Cookie(None),
 ):
+    update_by_time(session=session)
     user = get_user(session_token, session)
     users = session.exec(
         select(User).where(User.room_id == user.room_id).offset(offset).limit(limit)
@@ -114,12 +130,14 @@ def read_my_information(
     session: Session = Depends(get_session),
     session_token: str = Cookie(None),
 ):
+    update_by_time(session=session)
     user = get_user(session_token, session)
     return user
 
 
 @app.post("/rooms/", response_model=RoomPublic)
 def create_room(*, session: Session = Depends(get_session), room: RoomCreate):
+    update_by_time(session=session)
     db_room = Room.model_validate(room)
     session.add(db_room)
     session.commit()
@@ -134,6 +152,7 @@ def read_rooms(
     offset: int = 0,
     limit: int = Query(default=100, le=100),
 ):
+    update_by_time(session=session)
     rooms = session.exec(select(Room).offset(offset).limit(limit)).all()
     return rooms
 
@@ -146,6 +165,7 @@ def update_rooms(
     room_id: int,
     room: RoomUpdate,
 ):
+    update_by_time(session=session)
     user = get_user(session_token, session)
     if user.room_id is None:
         raise HTTPException(
@@ -178,6 +198,7 @@ def enter_room(
     room_id: int,
     isWatcher: bool = False,
 ):
+    update_by_time(session=session)
     db_user = get_user(session_token, session)
     if db_user.room is not None:
         raise HTTPException(
@@ -215,6 +236,7 @@ def exit_room(
     session: Session = Depends(get_session),
     session_token: str = Cookie(None),
 ):
+    update_by_time(session=session)
     db_user = get_user(session_token, session)
     if db_user.room is None:
         raise HTTPException(
@@ -236,6 +258,7 @@ def game_start(
     session_token: str = Cookie(None),
     room_id: int,
 ):
+    update_by_time(session=session)
     user = get_user(session_token=session_token, session=session)
     if user.room_id is None:
         raise HTTPException(
@@ -271,6 +294,7 @@ def game_end(
     session_token: str = Cookie(None),
     room_id: int,
 ):
+    update_by_time(session=session)
     user = get_user(session_token=session_token, session=session)
     if user.room_id is None:
         raise HTTPException(
@@ -313,6 +337,7 @@ def close_room(
     session_token: str = Cookie(None),
     room_id: int,
 ):
+    update_by_time(session=session)
     user = get_user(session_token=session_token, session=session)
     if user.room_id is None:
         raise HTTPException(
@@ -345,6 +370,7 @@ def read_messages(
     session_token: str = Cookie(None),
     target_group: str | None = None,
 ):
+    update_by_time(session=session)
     user = get_user(session_token, session)
     room = session.exec(select(Room).where(Room.id == user.room_id)).one()
     if room is None:
@@ -368,6 +394,7 @@ def create_message(
     session: Session = Depends(get_session),
     session_token: str = Cookie(None),
 ):
+    update_by_time(session=session)
     user = get_user(session_token, session)
     if user.room is None:
         raise HTTPException(
