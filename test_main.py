@@ -3,9 +3,11 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 from sqlmodel.pool import StaticPool
 
-from main import app, get_session, state_preupdate
-from models import User, Room
+from main import app, get_session
+from models import User, Room, UserStateEnum, RoomStateEnum
 from uuid import uuid4
+
+# TODO 部屋主以外が部屋を消したりゲームを終了したりできないようにする。
 
 
 # main.pyのテストは動的な要素が絡み、localhost以外のネットワークアクセスを制限する中程度のテスト範囲（GoogleのテストにおけるMiddleテスト）である。
@@ -19,7 +21,6 @@ def session_fixture():
     )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
-        state_preupdate(session)
         yield session
 
 
@@ -97,17 +98,16 @@ def test_read_me(session: Session, client: TestClient):
 
 
 def test_read_me_invalid(session: Session, client: TestClient):
+    response = client.get(f"/me/")
+    assert response.status_code == 403
+
+
+def test_create_room(session: Session, client: TestClient):
     user_1 = User(name="Deadpond", alias="Dive Wilson")
     session.add(user_1)
     session.commit()
 
-    response = client.get(f"/me/")
-    data = response.json()
-
-    assert response.status_code == 404
-
-
-def test_create_room(client: TestClient):
+    client.cookies.set("session_token", user_1.session_token)
     response = client.post(
         "/rooms/",
         json={"name": "room_1", "explanation": "This is explanationnof room_1."},
@@ -118,16 +118,25 @@ def test_create_room(client: TestClient):
     assert data["explanation"] == "This is explanationnof room_1."
 
 
-def test_create_room_incomplete(client: TestClient):
-    # No name
+def test_create_room_incomplete(session: Session, client: TestClient):
+    user_1 = User(name="Deadpond", alias="Dive Wilson")
+    session.add(user_1)
+    session.commit()
+
+    client.cookies.set("session_token", user_1.session_token)
     response = client.post(
         "/rooms/", json={"explanation": "This is explanationnof room_1."}
     )
     assert response.status_code == 422
 
 
-def test_create_room_invalid(client: TestClient):
+def test_create_room_invalid(session: Session, client: TestClient):
     # alias has an invalid type
+    user_1 = User(name="Deadpond", alias="Dive Wilson")
+    session.add(user_1)
+    session.commit()
+
+    client.cookies.set("session_token", user_1.session_token)
     response = client.post(
         "/rooms/",
         json={
@@ -156,6 +165,11 @@ def test_read_rooms(session: Session, client: TestClient):
     session.add(user_1)
     session.commit()
 
+    user_2 = User(name="Deadpond", alias="Dive Wilson")
+    session.add(user_2)
+    session.commit()
+
+    client.cookies.set("session_token", user_2.session_token)
     params = {"offset": 1, "limit": 3}
     response = client.get("/rooms/", params=params)
     data = response.json()
@@ -176,7 +190,6 @@ def test_read_rooms(session: Session, client: TestClient):
     assert data[1]["explanation"] == room_3.explanation
 
 
-# TODO update_room()のテスト
 def test_update_room(session: Session, client: TestClient):
     room_1 = Room(name="room_1")
     session.add(room_1)
@@ -192,7 +205,7 @@ def test_update_room(session: Session, client: TestClient):
     }
     client.cookies.set("session_token", user_1.session_token)
     response = client.patch(
-        f"/rooms/",
+        f"/rooms/{room_1.id}/settings/",
         json=json,
     )
     data = response.json()
@@ -206,6 +219,50 @@ def test_update_room(session: Session, client: TestClient):
     assert data["updated_at"] == room_1.updated_at.strftime("%Y-%m-%dT%H:%M:%S.%f")
     assert data["users"][0]["id"] == user_1.id
     assert data["users"][0]["alias"] == user_1.alias
+
+
+def test_update_room_NO_room_id(session: Session, client: TestClient):
+    room_1 = Room(name="room_1")
+    session.add(room_1)
+    session.commit()
+    user_1 = User(name="Tommy", alias="Rustyman")
+    session.add(user_1)
+    session.commit()
+
+    json = {
+        "name": "Hazbin Hotel",
+        "explanation": "The best hotel in Hell",
+        "detail_of_role": "devils",
+    }
+    client.cookies.set("session_token", user_1.session_token)
+    response = client.patch(
+        f"/rooms/{room_1.id}/settings/",
+        json=json,
+    )
+    assert response.status_code == 404
+
+
+def test_update_room_invalid_room_id(session: Session, client: TestClient):
+    room_1 = Room(name="room_1")
+    room_2 = Room(name="room_2")
+    session.add(room_1)
+    session.add(room_2)
+    session.commit()
+    user_1 = User(name="Tommy", alias="Rustyman", room_id=room_1.id)
+    session.add(user_1)
+    session.commit()
+
+    json = {
+        "name": "Hazbin Hotel",
+        "explanation": "The best hotel in Hell",
+        "detail_of_role": "devils",
+    }
+    client.cookies.set("session_token", user_1.session_token)
+    response = client.patch(
+        f"/rooms/{room_2.id}/settings/",
+        json=json,
+    )
+    assert response.status_code == 403
 
 
 def test_enter_room(session: Session, client: TestClient):
@@ -231,7 +288,11 @@ def test_enter_room(session: Session, client: TestClient):
     assert data["users"][0]["alias"] == user_1.alias
 
 
-def test_center_room_incomplete(client: TestClient):
+def test_enter_room_incomplete(session: Session, client: TestClient):
+    user_1 = User(name="Deadpond", alias="Dive Wilson")
+    session.add(user_1)
+    session.commit()
+    client.cookies.set("session_token", user_1.session_token)
     response = client.post("/rooms/entrance/")
     assert response.status_code == 422
 
@@ -253,22 +314,187 @@ def test_enter_room_invalid(session: Session, client: TestClient):
     assert response.status_code == 409
 
 
-# TODO exit_room()のテスト
 def test_exit_room(session: Session, client: TestClient):
     room_1 = Room(name="room_1")
     session.add(room_1)
     session.commit()
-    user_1 = User(name="Tommy", room_id=room_1.id, alias="Rustyman")
+    user_1 = User(
+        name="Tommy",
+        room_id=room_1.id,
+        state=str(UserStateEnum.OUTOFPLAY.value),
+        alias="Rustyman",
+    )
     session.add(user_1)
     session.commit()
 
     client.cookies.set("session_token", user_1.session_token)
     response = client.post(f"/rooms/exit/")
+    data = response.json()
     assert response.status_code == 200
+    assert data["state"] == str(UserStateEnum.OUTSIDE.value)
 
 
-# TODO game_start()のテスト
+def test_game_start(session: Session, client: TestClient):
+    room_1 = Room(name="room_1")
+    session.add(room_1)
+    session.commit()
+    user_1 = User(
+        name="Tommy",
+        room_id=room_1.id,
+        state=str(UserStateEnum.OUTOFPLAY.value),
+        alias="Rustyman",
+    )
+    user_2 = User(
+        name="Romance",
+        room_id=room_1.id,
+        state=str(UserStateEnum.OUTOFPLAY.value),
+        alias="Shifter",
+    )
+    user_3 = User(
+        name="Steffany",
+        room_id=room_1.id,
+        state=str(UserStateEnum.WATCHER.value),
+        alias="CaptainAfrica",
+    )
+    user_4 = User(
+        name="Ronin",
+        room_id=None,
+        state=str(UserStateEnum.OUTSIDE.value),
+        alias="ForkEye",
+    )
+    session.add(user_1)
+    session.add(user_2)
+    session.add(user_3)
+    session.add(user_4)
+    session.commit()
+
+    client.cookies.set("session_token", user_1.session_token)
+    response = client.post(f"/rooms/{room_1.id}/game/start/")
+    data = response.json()
+    assert response.status_code == 200
+    assert data["state"] == str(RoomStateEnum.FIRSTNIGHT.value)
+    assert room_1.state == str(RoomStateEnum.FIRSTNIGHT.value)
+    assert user_1.state == str(UserStateEnum.ALIVE.value)
+    assert user_2.state == str(UserStateEnum.ALIVE.value)
+    assert user_3.state == str(UserStateEnum.WATCHER.value)
+    assert user_4.state == str(UserStateEnum.OUTSIDE.value)
+
+
+def test_game_start_invalid(session: Session, client: TestClient):
+    room_1 = Room(name="room_1", state=str(RoomStateEnum.DAYTIME.value))
+    session.add(room_1)
+    session.commit()
+    user_1 = User(
+        name="Tommy",
+        room_id=room_1.id,
+        state=str(UserStateEnum.ALIVE.value),
+        alias="Rustyman",
+    )
+    session.add(user_1)
+    session.commit()
+
+    client.cookies.set("session_token", user_1.session_token)
+    response = client.post(f"/rooms/{room_1.id}/game/start/")
+    assert response.status_code == 412
+
+
+# TODO game_end()のテスト
+def test_game_end(session: Session, client: TestClient):
+    room_1 = Room(name="room_1", state=str(RoomStateEnum.DAYTIME.value))
+    session.add(room_1)
+    session.commit()
+    user_1 = User(
+        name="Tommy",
+        room_id=room_1.id,
+        state=str(UserStateEnum.ALIVE.value),
+        alias="Rustyman",
+    )
+    user_2 = User(
+        name="Romance",
+        room_id=room_1.id,
+        state=str(UserStateEnum.ALIVE.value),
+        alias="Shifter",
+    )
+    user_3 = User(
+        name="Steffany",
+        room_id=room_1.id,
+        state=str(UserStateEnum.WATCHER.value),
+        alias="CaptainAfrica",
+    )
+    session.add(user_1)
+    session.add(user_2)
+    session.add(user_3)
+    session.commit()
+
+    client.cookies.set("session_token", user_1.session_token)
+    response = client.post(f"/rooms/{room_1.id}/game/end/")
+    data = response.json()
+    assert response.status_code == 200
+    assert data["state"] == str(RoomStateEnum.AFTERGAME.value)
+    assert user_1.state == str(UserStateEnum.OUTOFPLAY.value)
+    assert user_2.state == str(UserStateEnum.OUTOFPLAY.value)
+    assert user_3.state == str(UserStateEnum.WATCHER.value)
+
+
+def test_game_end_invalid(session: Session, client: TestClient):
+    room_1 = Room(name="room_1", state=str(RoomStateEnum.AFTERGAME.value))
+    session.add(room_1)
+    session.commit()
+    user_1 = User(
+        name="Tommy",
+        room_id=room_1.id,
+        state=str(UserStateEnum.OUTOFPLAY.value),
+        alias="Rustyman",
+    )
+    session.add(user_1)
+    session.commit()
+
+    client.cookies.set("session_token", user_1.session_token)
+    response = client.post(f"/rooms/{room_1.id}/game/end/")
+
+    assert response.status_code == 412
+
+
 # TODO room_close()のテスト
+def test_room_close(session: Session, client: TestClient):
+    room_1 = Room(name="room_1", state=str(RoomStateEnum.AFTERGAME.value))
+    session.add(room_1)
+    session.commit()
+    user_1 = User(
+        name="Tommy",
+        room_id=room_1.id,
+        state=str(UserStateEnum.OUTOFPLAY.value),
+        alias="Rustyman",
+    )
+    user_2 = User(
+        name="Romance",
+        room_id=room_1.id,
+        state=str(UserStateEnum.OUTOFPLAY.value),
+        alias="Shifter",
+    )
+    user_3 = User(
+        name="Steffany",
+        room_id=room_1.id,
+        state=str(UserStateEnum.WATCHER.value),
+        alias="CaptainAfrica",
+    )
+    session.add(user_1)
+    session.add(user_2)
+    session.add(user_3)
+    session.commit()
+
+    client.cookies.set("session_token", user_1.session_token)
+    response = client.post(f"/rooms/{room_1.id}/close/")
+    data = response.json()
+    assert response.status_code == 200
+    assert room_1.state == str(RoomStateEnum.CLOSED.value)
+    assert user_1.state == str(UserStateEnum.OUTSIDE.value)
+    assert user_2.state == str(UserStateEnum.OUTSIDE.value)
+    assert user_3.state == str(UserStateEnum.OUTSIDE.value)
+    assert user_1.room_id == None
+    assert user_2.room_id == None
+    assert user_3.room_id == None
+
 
 # TODO read_messages()のテスト
 

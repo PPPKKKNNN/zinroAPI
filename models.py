@@ -5,17 +5,39 @@ from uuid import uuid4
 from enum import Enum
 
 
-# Room
+# Room 👇
 class RoomStateEnum(Enum):
     BEFOREGAME = "BeforeGame"
-    STARTGAME = "StartGame"
     FIRSTNIGHT = "FirstNight"
-    SCONDMORNING = "SecondMorning"
+    SECONDMORNING = "SecondMorning"
     DAYTIME = "DayTime"
     SUNSET = "SunSet"
     NIGHT = "Night"
+    MORNING = "Morning"
     AFTERGAME = "AfterGame"
     CLOSED = "Closed"
+
+
+ROOMSTATECYCLE = {
+    RoomStateEnum.BEFOREGAME: {"next": RoomStateEnum.CLOSED, "prev": None},
+    RoomStateEnum.FIRSTNIGHT: {
+        "next": RoomStateEnum.SECONDMORNING,
+        "prev": RoomStateEnum.BEFOREGAME,
+    },
+    RoomStateEnum.SECONDMORNING: {
+        "next": RoomStateEnum.DAYTIME,
+        "prev": RoomStateEnum.FIRSTNIGHT,
+    },
+    RoomStateEnum.DAYTIME: {
+        "next": RoomStateEnum.SUNSET,
+        "prev": RoomStateEnum.SECONDMORNING,
+    },
+    RoomStateEnum.SUNSET: {"next": RoomStateEnum.NIGHT, "prev": RoomStateEnum.DAYTIME},
+    RoomStateEnum.NIGHT: {"next": RoomStateEnum.MORNING, "prev": RoomStateEnum.SUNSET},
+    RoomStateEnum.MORNING: {"next": RoomStateEnum.DAYTIME, "prev": RoomStateEnum.NIGHT},
+    RoomStateEnum.AFTERGAME: {"next": RoomStateEnum.CLOSED, "prev": None},
+    RoomStateEnum.CLOSED: {"next": None, "prev": None},
+}
 
 
 class RoomBase(SQLModel):
@@ -65,6 +87,14 @@ class RoomUpdate(SQLModel):
 
 
 # User 👇
+class UserStateEnum(Enum):
+    OUTOFPLAY = "OutOfPlay"
+    ALIVE = "Alive"
+    DEAD = "Dead"
+    WATCHER = "Watcher"
+    OUTSIDE = "OutSide"
+
+
 class UserBase(SQLModel):
     alias: str | None = None
     pass
@@ -73,7 +103,7 @@ class UserBase(SQLModel):
 class User(UserBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str | None
-    state: str | None = None
+    state: str = Field(default=str(UserStateEnum.OUTSIDE.value), nullable=False)
     role: str | None = None
     group: str | None = None
     session_token: str | None = Field(
@@ -86,10 +116,12 @@ class User(UserBase, table=True):
 
 class UserPublicWithoutName(UserBase):
     id: int
+    state: str
 
 
 class UserPublicWithName(UserPublicWithoutName):
     name: str
+    state: str
 
 
 class UserCreate(UserBase):
