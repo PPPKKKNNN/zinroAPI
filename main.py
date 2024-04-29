@@ -116,9 +116,7 @@ def read_rooms(
     return rooms
 
 
-@app.patch(
-    "/rooms/",
-)
+@app.patch("/rooms/", response_model=RoomPublic)
 def update_rooms(
     *,
     session: Session = Depends(get_session),
@@ -140,10 +138,10 @@ def update_rooms(
     session.add(db_room)
     session.commit()
     session.refresh(db_room)
-    return {"detail": "Your room have updated."}
+    return db_room
 
 
-@app.post("/rooms/entrance/")
+@app.post("/rooms/entrance/", response_model=RoomPublic)
 def enter_room(
     *,
     session: Session = Depends(get_session),
@@ -153,7 +151,7 @@ def enter_room(
     db_user = get_user(session_token, session)
     if db_user.room is not None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_409_CONFLICT,
             detail=f"You have entered a room.",
         )
     db_user.room_id = room_id
@@ -161,7 +159,7 @@ def enter_room(
     session.add(db_user)
     session.commit()
     session.refresh(db_user)
-    return {"detail": "You have enterd."}
+    return db_user.room
 
 
 @app.post("/rooms/exit/")
@@ -180,7 +178,7 @@ def exit_room(
     session.add(db_user)
     session.commit()
     session.refresh(db_user)
-    return {"detail": "You have exited."}
+    return {"status": "ok"}
 
 
 # TODO recipient_groupをroomのstateとuserのroleによって動的に決定する
