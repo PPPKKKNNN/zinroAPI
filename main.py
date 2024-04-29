@@ -14,12 +14,17 @@ from models import (
     MessagePublic,
     RoomUpdate,
 )
-from uuid import uuid4
 from datetime import datetime
 
 
+def state_preupdate(session: Session):
+    return
+
+
+# ここに定期更新の処理を記述する
 def get_session():
     with Session(engine) as session:
+        state_preupdate(session)
         yield session
 
 
@@ -59,8 +64,6 @@ def create_user(
         )
 
     db_user = User.model_validate(user)
-    # pytestで使うsqliteがuui型を使えないので文字列にしている
-    db_user.session_token = str(uuid4())
     response.set_cookie(key="session_token", value=db_user.session_token)
 
     session.add(db_user)
@@ -181,7 +184,7 @@ def exit_room(
     return {"status": "ok"}
 
 
-# TODO recipient_groupをroomのstateとuserのroleによって動的に決定する
+# TODO target_groupをroomのstateとuserのroleによって動的に決定する
 @app.get("/messages/", response_model=list[MessagePublic])
 def read_messages(
     *,

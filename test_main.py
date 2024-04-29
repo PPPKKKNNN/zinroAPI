@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 from sqlmodel.pool import StaticPool
 
-from main import app, get_session
+from main import app, get_session, state_preupdate
 from models import User, Room
 from uuid import uuid4
 
@@ -19,6 +19,7 @@ def session_fixture():
     )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
+        state_preupdate(session)
         yield session
 
 
@@ -62,8 +63,8 @@ def test_create_user_invalid(client: TestClient):
 
 
 def test_read_users(session: Session, client: TestClient):
-    user_1 = User(name="Deadpond", alias="Dive Wilson", session_token=str(uuid4()))
-    user_2 = User(name="Rusty-Man", session_token=str(uuid4()))
+    user_1 = User(name="Deadpond", alias="Dive Wilson")
+    user_2 = User(name="Rusty-Man")
     session.add(user_1)
     session.add(user_2)
     session.commit()
@@ -81,7 +82,7 @@ def test_read_users(session: Session, client: TestClient):
 
 
 def test_read_me(session: Session, client: TestClient):
-    user_1 = User(name="Deadpond", alias="Dive Wilson", session_token=str(uuid4()))
+    user_1 = User(name="Deadpond", alias="Dive Wilson")
     session.add(user_1)
     session.commit()
 
@@ -96,7 +97,7 @@ def test_read_me(session: Session, client: TestClient):
 
 
 def test_read_me_invalid(session: Session, client: TestClient):
-    user_1 = User(name="Deadpond", alias="Dive Wilson", session_token=str(uuid4()))
+    user_1 = User(name="Deadpond", alias="Dive Wilson")
     session.add(user_1)
     session.commit()
 
@@ -151,6 +152,10 @@ def test_read_rooms(session: Session, client: TestClient):
     session.add(room_5)
     session.commit()
 
+    user_1 = User(name="Tommy", room_id=room_2.id, alias="Rustyman")
+    session.add(user_1)
+    session.commit()
+
     params = {"offset": 1, "limit": 3}
     response = client.get("/rooms/", params=params)
     data = response.json()
@@ -164,7 +169,8 @@ def test_read_rooms(session: Session, client: TestClient):
     assert data[0]["detail_of_role"] == room_2.detail_of_role
     assert data[0]["created_at"] == room_2.created_at.strftime("%Y-%m-%dT%H:%M:%S.%f")
     assert data[0]["updated_at"] == room_2.updated_at.strftime("%Y-%m-%dT%H:%M:%S.%f")
-    assert data[0]["users"] == room_2.users
+    assert data[0]["users"][0]["id"] == user_1.id
+    assert data[0]["users"][0]["alias"] == user_1.alias
 
     # 説明文がある場合のテスト
     assert data[1]["explanation"] == room_3.explanation
@@ -175,9 +181,7 @@ def test_update_room(session: Session, client: TestClient):
     room_1 = Room(name="room_1")
     session.add(room_1)
     session.commit()
-    user_1 = User(
-        name="Tommy", session_token=str(uuid4()), room_id=room_1.id, alias="Rustyman"
-    )
+    user_1 = User(name="Tommy", room_id=room_1.id, alias="Rustyman")
     session.add(user_1)
     session.commit()
 
@@ -204,12 +208,11 @@ def test_update_room(session: Session, client: TestClient):
     assert data["users"][0]["alias"] == user_1.alias
 
 
-# TODO enter_room()のテスト
 def test_enter_room(session: Session, client: TestClient):
     room_1 = Room(name="room_1")
     session.add(room_1)
     session.commit()
-    user_1 = User(name="Tommy", session_token=str(uuid4()), alias="Rustyman")
+    user_1 = User(name="Tommy", alias="Rustyman")
     session.add(user_1)
     session.commit()
 
@@ -229,7 +232,6 @@ def test_enter_room(session: Session, client: TestClient):
 
 
 def test_center_room_incomplete(client: TestClient):
-    # No name
     response = client.post("/rooms/entrance/")
     assert response.status_code == 422
 
@@ -241,9 +243,7 @@ def test_enter_room_invalid(session: Session, client: TestClient):
     session.add(room_2)
     session.commit()
 
-    user_1 = User(
-        name="Tommy", session_token=str(uuid4()), alias="Rustyman", room_id=room_1.id
-    )
+    user_1 = User(name="Tommy", alias="Rustyman", room_id=room_1.id)
     session.add(user_1)
     session.commit()
 
@@ -254,6 +254,22 @@ def test_enter_room_invalid(session: Session, client: TestClient):
 
 
 # TODO exit_room()のテスト
+def test_exit_room(session: Session, client: TestClient):
+    room_1 = Room(name="room_1")
+    session.add(room_1)
+    session.commit()
+    user_1 = User(name="Tommy", room_id=room_1.id, alias="Rustyman")
+    session.add(user_1)
+    session.commit()
+
+    client.cookies.set("session_token", user_1.session_token)
+    response = client.post(f"/rooms/exit/")
+    assert response.status_code == 200
+
+
+# TODO game_start()のテスト
+# TODO room_close()のテスト
 
 # TODO read_messages()のテスト
+
 # TODO create_message()のテスト

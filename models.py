@@ -1,9 +1,23 @@
 from sqlmodel import SQLModel, Field, Relationship, text
 from typing import List, Optional
 from datetime import datetime, timedelta
+from uuid import uuid4
+from enum import Enum
 
 
-# Room　👇
+# Room
+class RoomStateEnum(Enum):
+    BEFOREGAME = "BeforeGame"
+    STARTGAME = "StartGame"
+    FIRSTNIGHT = "FirstNight"
+    SCONDMORNING = "SecondMorning"
+    DAYTIME = "DayTime"
+    SUNSET = "SunSet"
+    NIGHT = "Night"
+    AFTERGAME = "AfterGame"
+    CLOSED = "Closed"
+
+
 class RoomBase(SQLModel):
     name: str
     explanation: str | None
@@ -11,7 +25,9 @@ class RoomBase(SQLModel):
 
 class Room(RoomBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    state: str | None = None
+    state: str | None = Field(
+        default=str(RoomStateEnum.BEFOREGAME.value), nullable=False
+    )
     detail_of_role: str | None = None
     created_at: datetime | None = Field(default_factory=datetime.now, nullable=False)
     updated_at: datetime | None = Field(
@@ -60,7 +76,9 @@ class User(UserBase, table=True):
     state: str | None = None
     role: str | None = None
     group: str | None = None
-    session_token: str | None = Field(default=None, index=True)
+    session_token: str | None = Field(
+        default_factory=lambda: str(uuid4()), nullable=False, index=True
+    )
     room: Room | None = Relationship(back_populates="users")
     room_id: int | None = Field(default=None, foreign_key="room.id")
     messages: List["Message"] | None = Relationship(back_populates="user")
