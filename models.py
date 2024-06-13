@@ -185,6 +185,17 @@ class MessagePublic(MessageBase):
     target_group: str | None = None
 
 
+class MessageWolf(MessageBase):
+    id: int
+    room_id: int
+    room: RoomPublic
+    user_id: int
+    user: UserPublicWithoutName
+    created_at: datetime
+    target_user: str | None = None
+    target_group: str = "wolf"
+
+
 class MessageCreate(MessageBase):
     content: str
 
@@ -205,6 +216,7 @@ class Role:
 
 class Wolf(Role):
     name = "wolf"
+    role_group = RoleGroupWolf()
 
 
 # Role　👆

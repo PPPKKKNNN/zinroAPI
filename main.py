@@ -33,6 +33,7 @@ from models import (
     Message,
     MessageCreate,
     MessagePublic,
+    MessageWolf,
 )
 from datetime import datetime, timedelta
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -438,6 +439,40 @@ def create_message(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"You have not entered a room.",
         )
+    db_message = Message.model_validate(message)
+    db_message.room_id = user.room_id
+    db_message.user_id = user.id
+    session.add(db_message)
+    session.commit()
+    session.refresh(db_message)
+    return db_message
+
+
+@app.post("/messages/wolf/", response_model=MessageWolf)
+def create_message(
+    *,
+    message: MessageCreate,
+    session: Session = Depends(get_session),
+    session_token: str = Cookie(None),
+):
+    update_by_time(session=session)
+    user = get_user(session_token, session)
+    if user.room is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"You have not entered a room.",
+        )
+    if user.role_key != "wolf":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"You are not a wolf.",
+        )
+    if user.room.state != str(RoomStateEnum.NIGHT.value):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"This is not night.",
+        )
+
     db_message = Message.model_validate(message)
     db_message.room_id = user.room_id
     db_message.user_id = user.id
