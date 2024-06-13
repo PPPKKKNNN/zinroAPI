@@ -216,7 +216,6 @@ class Role:
 
 class Wolf(Role):
     name = "wolf"
-    role_group = RoleGroupWolf()
 
 
 # Role　👆

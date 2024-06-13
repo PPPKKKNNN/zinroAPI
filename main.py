@@ -88,6 +88,23 @@ def read_time(*, session: Session = Depends(get_session)):
     return {"time": str(datetime.now())}
 
 
+@app.get("/me/", response_model=UserPublicWithName)
+def read_users(
+    *,
+    session: Session = Depends(get_session),
+    session_token: str = Cookie(None),
+):
+    update_by_time(session=session)
+
+    user = get_user(session_token, session)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"You have not created an user.",
+        )
+    return user
+
+
 @app.post("/users/", response_model=UserPublicWithName)
 def create_user(
     *,
