@@ -29,6 +29,7 @@ from models import (
     RoomUpdate,
     RoomStateEnum,
     ROOMSTATECYCLE,
+    ROOMSTATETIME,
     Message,
     MessageCreate,
     MessagePublic,
@@ -41,11 +42,12 @@ from typing import List
 # 時間経過による更新処理をここで行う
 def update_by_time(session: Session):
     rooms: List[Room] = session.exec(select(Room)).all()
-
     for room in rooms:
-        if room.next_state_update_at <= datetime.now():
+        if room.next_state_update_at <= datetime.now() and room.state != str(
+            RoomStateEnum.CLOSED.value
+        ):
             room.state = str(ROOMSTATECYCLE[room.state])
-            room.next_state_update_at += timedelta(minutes=5)
+            room.next_state_update_at += timedelta(minutes=ROOMSTATETIME[room.state])
             session.add(room)
     session.commit()
     return session
@@ -124,14 +126,20 @@ def read_users(
     return users
 
 
-@app.get("/me/", response_model=UserPublicWithName)
+@app.get("/users/{user_id}/", response_model=UserPublicWithName)
 def read_my_information(
     *,
     session: Session = Depends(get_session),
     session_token: str = Cookie(None),
+    user_id: int,
 ):
     update_by_time(session=session)
     user = get_user(session_token, session)
+    if user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"You used invalid user_id. You can only use user_id which is the same as your session_token.",
+        )
     return user
 
 
@@ -251,6 +259,36 @@ def exit_room(
     return db_user
 
 
+@app.post("/rooms/{room_id}/close/")
+def close_room(
+    *,
+    session: Session = Depends(get_session),
+    session_token: str = Cookie(None),
+    room_id: int,
+):
+    update_by_time(session=session)
+    user = get_user(session_token=session_token, session=session)
+    if user.room_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"You have not entered a room.",
+        )
+    if user.room_id != room_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"You can not update the room setting that you are not in.",
+        )
+    db_room = session.exec(select(Room).where(Room.id == room_id)).one()
+    db_room.state = str(RoomStateEnum.CLOSED.value)
+    for db_user in db_room.users:
+        db_user.room_id = None
+        db_user.state = str(UserStateEnum.OUTSIDE.value)
+        session.add(db_user)
+    session.add(db_room)
+    session.commit
+    return {"state": "ok"}
+
+
 @app.post("/rooms/{room_id}/game/start/", response_model=RoomPublic)
 def game_start(
     *,
@@ -285,6 +323,35 @@ def game_start(
         session.add(db_user)
     session.commit()
     return db_room
+
+
+@app.post("/rooms/{room_id}/game/skip/", response_model=RoomPublic)
+def game_skip(
+    *,
+    session: Session = Depends(get_session),
+    session_token: str = Cookie(None),
+    room_id: int,
+):
+    update_by_time(session=session)
+    user = get_user(session_token=session_token, session=session)
+    if user.room is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"You have not entered a room.",
+        )
+    room = user.room
+    if room.state != (
+        str(RoomStateEnum.CLOSED.value)
+        or str(RoomStateEnum.BEFOREGAME.value)
+        or str(RoomStateEnum.AFTERGAME.value)
+    ):
+        room.state = str(ROOMSTATECYCLE[room.state])
+        room.next_state_update_at = datetime.now() + timedelta(
+            minutes=ROOMSTATETIME[room.state]
+        )
+        session.add(room)
+        session.commit()
+    return room
 
 
 @app.post("/rooms/{room_id}/game/end/", response_model=RoomPublic)
@@ -328,36 +395,6 @@ def game_end(
     session.add(db_room)
     session.commit()
     return db_room
-
-
-@app.post("/rooms/{room_id}/close/")
-def close_room(
-    *,
-    session: Session = Depends(get_session),
-    session_token: str = Cookie(None),
-    room_id: int,
-):
-    update_by_time(session=session)
-    user = get_user(session_token=session_token, session=session)
-    if user.room_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"You have not entered a room.",
-        )
-    if user.room_id != room_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"You can not update the room setting that you are not in.",
-        )
-    db_room = session.exec(select(Room).where(Room.id == room_id)).one()
-    db_room.state = str(RoomStateEnum.CLOSED.value)
-    for db_user in db_room.users:
-        db_user.room_id = None
-        db_user.state = str(UserStateEnum.OUTSIDE.value)
-        session.add(db_user)
-    session.add(db_room)
-    session.commit
-    return {"state": "ok"}
 
 
 # TODO target_groupをroomのstateとuserのroleによって動的に決定する

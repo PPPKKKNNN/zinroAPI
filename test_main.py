@@ -101,7 +101,7 @@ def test_read_me(session: Session, client: TestClient):
     session.commit()
 
     client.cookies.set("session_token", user_1.session_token)
-    response = client.get(f"/me/")
+    response = client.get(f"/users/{user_1.id}/")
     data = response.json()
 
     assert response.status_code == 200
@@ -111,7 +111,7 @@ def test_read_me(session: Session, client: TestClient):
 
 
 def test_read_me_invalid(session: Session, client: TestClient):
-    response = client.get(f"/me/")
+    response = client.get(f"/users/000/")
     assert response.status_code == 403
 
 
@@ -506,7 +506,6 @@ def test_room_close(session: Session, client: TestClient):
     assert user_3.room_id == None
 
 
-# TODO AppMiddlewareのテスト
 @freeze_time("2023-04-01")
 def test_time_forward(session: Session, client: TestClient):
     room_1 = Room(name="room_1")
@@ -515,6 +514,32 @@ def test_time_forward(session: Session, client: TestClient):
     with freeze_time(datetime.datetime.now() + datetime.timedelta(minutes=31)):
         client.get("/rooms/")
         assert room_1.state == str(RoomStateEnum.CLOSED.value)
+        assert room_1.next_state_update_at == datetime.datetime(2023, 4, 1, 0, 35)
+
+
+# game_skip()のテスト
+def test_game_skip(session: Session, client: TestClient):
+    room_1 = Room(name="room_1", state=str(RoomStateEnum.FIRSTNIGHT.value))
+    session.add(room_1)
+    session.commit()
+    user_1 = User(
+        name="user_1", state=str(UserStateEnum.ALIVE.value), room_id=room_1.id
+    )
+    session.add(user_1)
+    session.commit
+    client.cookies.set("session_token", user_1.session_token)
+    client.post(f"/rooms/{room_1.id}/game/skip/")
+    assert room_1.state == str(RoomStateEnum.SECONDMORNING.value)
+    client.post(f"/rooms/{room_1.id}/game/skip/")
+    assert room_1.state == str(RoomStateEnum.DAYTIME.value)
+    client.post(f"/rooms/{room_1.id}/game/skip/")
+    assert room_1.state == str(RoomStateEnum.SUNSET.value)
+    client.post(f"/rooms/{room_1.id}/game/skip/")
+    assert room_1.state == str(RoomStateEnum.NIGHT.value)
+    client.post(f"/rooms/{room_1.id}/game/skip/")
+    assert room_1.state == str(RoomStateEnum.MORNING.value)
+    client.post(f"/rooms/{room_1.id}/game/skip/")
+    assert room_1.state == str(RoomStateEnum.DAYTIME.value)
 
 
 # TODO read_messages()のテスト

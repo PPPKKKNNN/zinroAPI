@@ -5,6 +5,22 @@ from uuid import uuid4
 from enum import Enum
 
 
+# Roleは会話の閲覧権限のスコープの指定、action配下の各エンドポイントの利用権限のスコープの指定を行う
+class RoleBase:
+    pass
+
+
+class RoleWolf(RoleBase):
+    pass
+
+
+class RoleVillager(RoleBase):
+    pass
+
+
+RoleClassList = {"villager": RoleVillager, "wolf": RoleWolf}
+
+
 # Room 👇
 class RoomStateEnum(Enum):
     BEFOREGAME = "BeforeGame"
@@ -18,7 +34,19 @@ class RoomStateEnum(Enum):
     CLOSED = "Closed"
 
 
-ROOMSTATECYCLE: Dict[str, Dict["next":str, "prev":str]] = {
+ROOMSTATETIME = {
+    RoomStateEnum.BEFOREGAME.value: 30,
+    RoomStateEnum.FIRSTNIGHT.value: 3,
+    RoomStateEnum.SECONDMORNING.value: 0.25,
+    RoomStateEnum.DAYTIME.value: 5,
+    RoomStateEnum.SUNSET.value: 2,
+    RoomStateEnum.NIGHT.value: 3,
+    RoomStateEnum.MORNING.value: 0.25,
+    RoomStateEnum.AFTERGAME.value: 5,
+    RoomStateEnum.CLOSED.value: 5,  # test用に5(分)と置いている
+}
+
+ROOMSTATECYCLE = {
     RoomStateEnum.BEFOREGAME.value: RoomStateEnum.CLOSED.value,
     RoomStateEnum.FIRSTNIGHT.value: RoomStateEnum.SECONDMORNING.value,
     RoomStateEnum.SECONDMORNING.value: RoomStateEnum.DAYTIME.value,
@@ -97,8 +125,7 @@ class User(UserBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str | None
     state: str = Field(default=str(UserStateEnum.OUTSIDE.value), nullable=False)
-    role: str | None = None
-    group: str | None = None
+    role_key: str | None = None
     session_token: str | None = Field(
         default_factory=lambda: str(uuid4()), nullable=False, index=True
     )
