@@ -193,7 +193,7 @@ class MessageWolf(MessageBase):
     user: UserPublicWithoutName
     created_at: datetime
     target_user: str | None = None
-    target_group: str = "wolf"
+    target_group: str = "wolves"
 
 
 class MessageCreate(MessageBase):
@@ -223,6 +223,12 @@ class Wolf(Role):
 
 
 # RoleGroup　👇
+ROLETOGROUP = {
+    "villager": ["villagers"],
+    "wolf": ["wolves", "villagers"],
+}
+
+
 class RoleGroup:
     name: str
 

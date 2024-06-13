@@ -34,6 +34,7 @@ from models import (
     MessageCreate,
     MessagePublic,
     MessageWolf,
+    ROLETOGROUP,
 )
 from datetime import datetime, timedelta
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -416,9 +417,10 @@ def read_messages(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"You have not entered a room.",
         )
+    target_group = ROLETOGROUP[user.role_key]
     messages = session.exec(
         select(Message)
-        .where(Message.room_id == room.id and Message.target_group == target_group)
+        .where(Message.room_id == room.id and Message.target_group.in_(target_group))
         .offset(offset)
         .limit(limit)
     ).all()
